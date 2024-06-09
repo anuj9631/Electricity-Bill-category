@@ -4,25 +4,33 @@ from statsmodels.tsa.seasonal import seasonal_decompose
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 from sklearn.metrics import mean_squared_error, mean_absolute_error
 import numpy as np
-data = pd.read_csv('2012-2013 Solar home electricity data v2.csv') 
+
+# Load data
+data = pd.read_csv('2012-2013 Solar home electricity data v2.csv')
+
+# Extract time interval columns and format them
 time_intervals_df = data.iloc[:, 5:-1]
 time_intervals_df.columns = pd.to_datetime(time_intervals_df.columns)
 time_intervals_df.columns = time_intervals_df.columns.strftime('%H:%M')
+
+# Melt the dataframe to long format
 data_melted = pd.melt(data, id_vars=['Customer', 'Generator Capacity', 'Postcode', 'Consumption Category', 'date'],
                       value_vars=time_intervals_df.columns, var_name='time_interval', value_name='total consumption')
 
+# Add seconds to time intervals
 data_melted['time_interval'] = data_melted['time_interval'] + ':00'
 
+# Combine date and time_interval into a datetime column
 data_melted['datetime'] = pd.to_datetime(data_melted['date'], format='%d-%m-%Y') + pd.to_timedelta(data_melted['time_interval'])
 data_melted.drop(['date', 'time_interval'], axis=1, inplace=True)
 
-
+# Group data by Consumption Category and datetime, calculate mean consumption
 cate_data = data_melted.groupby(['Consumption Category', 'datetime'])['total consumption'].mean().reset_index()
 
-
+# Plot energy consumption evolution over time for each category
 for category in cate_data['Consumption Category'].unique():
-category_subset = cate_data[cate_data['Consumption Category'] == category]
-plt.plot(category_subset['datetime'], category_subset['total consumption'], label=category)
+    category_subset = cate_data[cate_data['Consumption Category'] == category]
+    plt.plot(category_subset['datetime'], category_subset['total consumption'], label=category)
 
 plt.xlabel('datetime')
 plt.ylabel('Energy Consumption')
@@ -30,6 +38,7 @@ plt.title('Energy Consumption Evolution Over Time')
 plt.legend()
 plt.show()
 
+# Seasonal decomposition for each consumption category
 for category in cate_data['Consumption Category'].unique():
     category_subset = cate_data[cate_data['Consumption Category'] == category]
     decomposition = seasonal_decompose(category_subset['total consumption'], period=365)
@@ -37,6 +46,7 @@ for category in cate_data['Consumption Category'].unique():
     seasonal = decomposition.seasonal
     residual = decomposition.resid
 
+    plt.figure(figsize=(10, 8))
     plt.subplot(4, 1, 1)
     plt.plot(category_subset['datetime'], category_subset['total consumption'], label='Original')
     plt.legend()
@@ -49,12 +59,14 @@ for category in cate_data['Consumption Category'].unique():
     plt.subplot(4, 1, 4)
     plt.plot(category_subset['datetime'], residual, label='Residual')
     plt.legend()
+    plt.tight_layout()
     plt.show()
 
-
+# Split data into training and testing sets
 first_data = cate_data[cate_data['datetime'] < '2023-01-01']
 test_check_data = cate_data[cate_data['datetime'] >= '2023-01-01']
 
+# Model fitting and prediction for each category
 for category in cate_data['Consumption Category'].unique():
     category_train_data = first_data[first_data['Consumption Category'] == category]
     category_test_data = test_check_data[test_check_data['Consumption Category'] == category]
@@ -62,7 +74,6 @@ for category in cate_data['Consumption Category'].unique():
     model = SARIMAX(category_train_data['total consumption'], order=(1, 1, 1), seasonal_order=(1, 1, 1, 365))
     result = model.fit()
     predictions = result.predict(start=0, end=len(category_test_data)-1)
-
 
     plt.plot(category_test_data['datetime'], category_test_data['total consumption'], label='Actual')
     plt.plot(category_test_data['datetime'], predictions, label='Predicted')
